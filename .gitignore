@@ -1,0 +1,23 @@
+# Build artifacts
+bin/
+obj/
+*.o
+
+# Audio files
+/*.wav
+/*.mp3
+/*.ogg
+/*.mp4
+
+# Project assets (we keep the TTF but not the screenshot if large)
+# /assets/clipper.png
+
+# Temporary/Dev files
+src.zip
+prompt.md
+.gemini/
+.agent/
+.DS_Store
+
+# Raylib specific (if any local temp)
+raylib_config.h
