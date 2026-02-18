@@ -79,14 +79,38 @@ static bool IsTimeClipped(float t) {
 static bool GuiButton(Rectangle bounds, const char *text);
 static float GuiSlider(Rectangle bounds, const char *textLeft, const char *textRight, float value, float min, float max);
 
+// void InitUI(void) {
+//     // Load custom font
+//     uiFont = LoadFontEx("assets/JetBrainsMono-Regular.ttf", 32, NULL, 0);
+//     if (uiFont.glyphCount > 0) {
+//         fontLoaded = true;
+//         SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+//     }
+// }
+
 void InitUI(void) {
+    // Get the application (executable) directory
+    const char *appDir = GetApplicationDirectory();
+    
+    // Construct the font path relative to executable
+    char fontPath[512];
+    snprintf(fontPath, sizeof(fontPath), "%sassets/JetBrainsMono-Regular.ttf", appDir);
+    
     // Load custom font
-    uiFont = LoadFontEx("assets/JetBrainsMono-Regular.ttf", 32, NULL, 0);
+    uiFont = LoadFontEx(fontPath, 32, NULL, 0);
     if (uiFont.glyphCount > 0) {
         fontLoaded = true;
         SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+    } else {
+        // Fallback: try current working directory (for development)
+        uiFont = LoadFontEx("assets/JetBrainsMono-Regular.ttf", 32, NULL, 0);
+        if (uiFont.glyphCount > 0) {
+            fontLoaded = true;
+            SetTextureFilter(uiFont.texture, TEXTURE_FILTER_BILINEAR);
+        }
     }
 }
+
 
 // UI layout constants
 #define SIDE_MARGIN 50
