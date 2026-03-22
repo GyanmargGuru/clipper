@@ -10,7 +10,8 @@ typedef struct {
 } AudioBuffer;
 
 // Loads audio data using ffmpeg pipe. Resamples to 44100Hz Stereo Float32.
-AudioBuffer LoadAudioDataFFmpeg(const char *fileName);
+// progressCallback is periodically called during load.
+AudioBuffer LoadAudioDataFFmpeg(const char *fileName, void (*progressCallback)(float));
 void FreeAudioBuffer(AudioBuffer buffer);
 
 #endif

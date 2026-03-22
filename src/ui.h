@@ -12,4 +12,7 @@ void DrawUI(void);
 float GetSelectionStart(void);
 float GetSelectionEnd(void);
 
+// Callback to show loading progress
+void UIUpdateLoadProgress(float pct);
+
 #endif

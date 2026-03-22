@@ -23,6 +23,7 @@ static float selectionStart = -1.0f;
 static float selectionEnd = -1.0f;
 static bool isDraggingStart = false; 
 static char saveFilename[256] = "clip-01.wav";
+static bool saveAsMono = true; // Added mono toggle
 
 // Clipped regions tracking
 #define MAX_CLIPPED_REGIONS 256
@@ -68,11 +69,63 @@ static int UIMeasureText(const char *text, int fontSize) {
     return MeasureText(text, fontSize);
 }
 
-static bool IsTimeClipped(float t) {
+static bool IsTimeClipped(float tStart, float tEnd) {
     for (int i = 0; i < clippedRegionCount; i++) {
-        if (t >= clippedRegions[i].start && t <= clippedRegions[i].end) return true;
+        if (tStart <= clippedRegions[i].end && tEnd >= clippedRegions[i].start) return true;
     }
     return false;
+}
+
+// Checkbox helper
+static bool GuiCheckBox(Rectangle bounds, const char *text, bool checked) {
+    Vector2 mouse = GetMousePosition();
+    bool hovering = CheckCollisionPointRec(mouse, bounds);
+    if (hovering && IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+        checked = !checked;
+    }
+    DrawRectangleRec(bounds, checked ? GetColor(0x0078D7FF) : GetColor(0x404040FF));
+    DrawRectangleLinesEx(bounds, 1, GetColor(0x808080FF));
+    
+    int fontSize = 16;
+    if (fontLoaded) {
+        DrawTextEx(uiFont, text, (Vector2){bounds.x + bounds.width + 10, bounds.y + bounds.height/2 - 8}, (float)fontSize, 1.0f, RAYWHITE);
+    } else {
+        DrawText(text, bounds.x + bounds.width + 10, bounds.y + bounds.height/2 - 8, fontSize, RAYWHITE);
+    }
+    return checked;
+}
+
+// Loading Progress Callbacks
+void UIUpdateLoadProgress(float pct) {
+    BeginDrawing();
+    ClearBackground(GetColor(0x121212FF));
+    
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    
+    UIDrawText(TextFormat("Loading... %d%%", (int)(pct * 100)), sw/2 - 100, sh/2 - 20, 20, RAYWHITE);
+    
+    // Draw loading bar
+    DrawRectangle(sw/2 - 150, sh/2 + 20, 300, 20, DARKGRAY);
+    DrawRectangle(sw/2 - 150, sh/2 + 20, (int)(300 * pct), 20, GetColor(0x0078D7FF));
+    
+    EndDrawing();
+}
+
+static void UIUpdateSaveProgress(float pct) {
+    BeginDrawing();
+    ClearBackground(GetColor(0x121212FF));
+    
+    int sw = GetScreenWidth();
+    int sh = GetScreenHeight();
+    
+    UIDrawText(TextFormat("Saving Clip... %d%%", (int)(pct * 100)), sw/2 - 120, sh/2 - 20, 20, RAYWHITE);
+    
+    // Draw loading bar
+    DrawRectangle(sw/2 - 150, sh/2 + 20, 300, 20, DARKGRAY);
+    DrawRectangle(sw/2 - 150, sh/2 + 20, (int)(300 * pct), 20, GetColor(0x00A859FF));
+    
+    EndDrawing();
 }
 
 // Forward Declarations
@@ -334,6 +387,9 @@ void UpdateUI(void) {
             if (LoadTrack(droppedFiles.paths[0])) {
                 panOffset = 0;
                 clippedRegionCount = 0;  // Reset clip history
+                markerCount = 0;         // Reset markers
+                selectionStart = -1.0f;
+                selectionEnd = -1.0f;
                 float newDur = GetTrackDuration();
                 zoomLevel = (float)bounds.width / (newDur * 100.0f);
                 if (zoomLevel > 1.0f) zoomLevel = 1.0f;
@@ -405,7 +461,7 @@ static void DrawWaveform(void) {
     // Prepare Waveform Draw
     // Use zoomLevel to determine samples per pixel for consistent scaling
     float pixelsPerSec = zoomLevel * 100.0f;
-    if (pixelsPerSec < 1.0f) pixelsPerSec = 1.0f;
+    // Removed clamp on pixelsPerSec which caused visual de-sync on high zoom-outs
     float samplesPerPixel = (float)buffer->sampleRate / pixelsPerSec;
     
     int step = (int)samplesPerPixel;
@@ -443,7 +499,7 @@ static void DrawWaveform(void) {
         if (yMax > yMin) { int tmp = yMax; yMax = yMin; yMin = tmp; } // Swap if inverted
         if (yMax == yMin) { yMin += 1; }
         
-        Color waveColor = IsTimeClipped(pixelTime) ? GRAY : GREEN;
+        Color waveColor = IsTimeClipped(pixelTime, pixelTime + 1.0f / pixelsPerSec) ? GRAY : GREEN;
         DrawRectangle(x + i, yMax, 1, yMin - yMax, waveColor);
     }
     
@@ -511,8 +567,8 @@ void DrawUI(void) {
     
     if (GuiButton((Rectangle){3*MARGIN + 2*BUTTON_WIDTH, button_y_offset, BUTTON_WIDTH, BUTTON_HEIGHT}, "STOP")) {
         StopTrack();
-    }    
-
+    }
+    
     if (GuiButton((Rectangle){4*MARGIN + 3*BUTTON_WIDTH, button_y_offset, BUTTON_WIDTH, BUTTON_HEIGHT}, "ZOOM ALL")) {
         Rectangle bounds = GetWaveformBounds();
         float duration = GetTrackDuration();
@@ -521,6 +577,10 @@ void DrawUI(void) {
         if (minZoom < 0.001f) minZoom = 0.001f;
         zoomLevel = minZoom;
         panOffset = 0.0f;
+    }
+    
+    if (GuiButton((Rectangle){5*MARGIN + 4*BUTTON_WIDTH, button_y_offset, 140, BUTTON_HEIGHT}, "CLEAR MARKERS")) {
+        markerCount = 0;
     }
     
     if (GuiButton((Rectangle){MARGIN, button_y_offset, BUTTON_WIDTH, BUTTON_HEIGHT}, "LOAD FILE")) {
@@ -532,6 +592,9 @@ void DrawUI(void) {
              if (LoadTrack(file)) {
                  panOffset = 0;
                  clippedRegionCount = 0;  // Reset clip history
+                 markerCount = 0;         // Reset markers
+                 selectionStart = -1.0f;
+                 selectionEnd = -1.0f;
                  float newDur = GetTrackDuration();
                  Rectangle wb = GetWaveformBounds();
                  zoomLevel = (float)wb.width / (newDur * 100.0f);
@@ -547,12 +610,15 @@ void DrawUI(void) {
     // Save Clip
     if (selectionStart >= 0 && selectionEnd >= 0 && IsTrackLoaded()) {
         // Save Button aligned right
-        if (GuiButton((Rectangle){(float)screenWidth - BUTTON_WIDTH - MARGIN, button_y_offset, BUTTON_WIDTH, BUTTON_HEIGHT}, "SAVE CLIP")) {
+        float saveBtnX = (float)screenWidth - BUTTON_WIDTH - MARGIN;
+        saveAsMono = GuiCheckBox((Rectangle){saveBtnX - 110, button_y_offset + 5, 20, 20}, "Mono", saveAsMono);
+        
+        if (GuiButton((Rectangle){saveBtnX, button_y_offset, BUTTON_WIDTH, BUTTON_HEIGHT}, "SAVE CLIP")) {
              const char *filters[] = {"*.wav"};
              const char *file = tinyfd_saveFileDialog("Save Clip", saveFilename, 1, filters, "WAV Files");
              if (file) {
                  char cmd[4096];
-                 snprintf(cmd, sizeof(cmd), "ffmpeg -v error -f f32le -ar 44100 -ac 2 -i pipe:0 -y \"%s\"", file);
+                 snprintf(cmd, sizeof(cmd), "ffmpeg -v error -f f32le -ar 44100 -ac 2 -i pipe:0 -ac %d -y \"%s\"", saveAsMono ? 1 : 2, file);
                  FILE *fp = popen(cmd, "w");
                  if (fp) {
                      AudioBuffer *ab = GetTrackBuffer();
@@ -564,7 +630,15 @@ void DrawUI(void) {
                          
                          long long framesToWrite = endSamp - startSamp;
                          if (framesToWrite > 0) {
-                             fwrite(ab->samples + (startSamp * ab->channels), sizeof(float) * ab->channels, framesToWrite, fp);
+                             long long framesWritten = 0;
+                             while(framesWritten < framesToWrite) {
+                                 long long chunkFrames = 44100; // 1 second chunks
+                                 if (framesWritten + chunkFrames > framesToWrite) chunkFrames = framesToWrite - framesWritten;
+                                 fwrite(ab->samples + ((startSamp + framesWritten) * ab->channels), sizeof(float) * ab->channels, chunkFrames, fp);
+                                 framesWritten += chunkFrames;
+                                 float pct = (float)framesWritten / (float)framesToWrite;
+                                 UIUpdateSaveProgress(pct);
+                             }
                          }
                      }
                      pclose(fp);

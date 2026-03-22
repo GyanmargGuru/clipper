@@ -1,5 +1,6 @@
 #include "audio_player.h"
 #include "sonic.h" // vendor/sonic.h
+#include "ui.h" // for UIUpdateLoadProgress
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -52,7 +53,7 @@ bool LoadTrack(const char *fileName) {
         localAudioBuffer.samples = NULL;
     }
     
-    localAudioBuffer = LoadAudioDataFFmpeg(fileName);
+    localAudioBuffer = LoadAudioDataFFmpeg(fileName, UIUpdateLoadProgress);
     if (!localAudioBuffer.samples) return false;
     
     currentAudio = &localAudioBuffer;

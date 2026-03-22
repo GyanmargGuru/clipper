@@ -3,9 +3,27 @@
 #include <stdlib.h>
 #include <string.h>
 
-AudioBuffer LoadAudioDataFFmpeg(const char *fileName) {
+AudioBuffer LoadAudioDataFFmpeg(const char *fileName, void (*progressCallback)(float)) {
     AudioBuffer buffer = {0};
     
+    // First, let's get the duration of the file using ffprobe
+    char probeCmd[2048];
+    snprintf(probeCmd, sizeof(probeCmd), "ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 \"%s\"", fileName);
+    FILE *probeFp = popen(probeCmd, "r");
+    double duration = -1.0;
+    if (probeFp) {
+        if (fscanf(probeFp, "%lf", &duration) != 1) {
+            duration = -1.0;
+        }
+        pclose(probeFp);
+    }
+    
+    // Calculate expected total samples (2 channels, 44100 Hz)
+    size_t expectedTotalSamples = 0;
+    if (duration > 0) {
+        expectedTotalSamples = (size_t)(duration * 44100 * 2);
+    }
+
     // Construct command
     // "ffmpeg -v error -i \"fileName\" -f f32le -ac 2 -ar 44100 pipe:1"
     
@@ -43,6 +61,7 @@ AudioBuffer LoadAudioDataFFmpeg(const char *fileName) {
     
     size_t samplesRead;
     float tempBuffer[4096]; // Read in chunks of floats
+    size_t lastCallbackSamples = 0;
     
     while ((samplesRead = fread(tempBuffer, sizeof(float), 4096, fp)) > 0) {
         if (count + samplesRead > capacity) {
@@ -58,6 +77,14 @@ AudioBuffer LoadAudioDataFFmpeg(const char *fileName) {
         }
         memcpy(data + count, tempBuffer, samplesRead * sizeof(float));
         count += samplesRead;
+        
+        // Only call callback approx every 44100*2 floats (1 second of audio) to save UI thrashing
+        if (progressCallback && expectedTotalSamples > 0 && (count - lastCallbackSamples >= 88200)) {
+            float pct = (float)count / (float)expectedTotalSamples;
+            if (pct > 1.0f) pct = 1.0f;
+            progressCallback(pct);
+            lastCallbackSamples = count;
+        }
     }
     
     int exitCode = pclose(fp);
